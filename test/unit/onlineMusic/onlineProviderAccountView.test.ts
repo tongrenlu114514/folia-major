@@ -26,6 +26,7 @@ describe('online provider account home view', () => {
     it('shows a neutral resolving state while the account is hydrating', () => {
         expect(resolveOnlineProviderAccountView({
             provider: provider('unknown'),
+            userLibrary: true,
             hasUser: false,
             platformAvailable: true,
         })).toBe('resolving');
@@ -34,6 +35,7 @@ describe('online provider account home view', () => {
     it('shows the login view only after the account is confirmed anonymous', () => {
         expect(resolveOnlineProviderAccountView({
             provider: provider('anonymous'),
+            userLibrary: true,
             hasUser: false,
             platformAvailable: true,
         })).toBe('guest');
@@ -42,6 +44,7 @@ describe('online provider account home view', () => {
     it('uses cached user data immediately even while remote validation is pending', () => {
         expect(resolveOnlineProviderAccountView({
             provider: provider('unknown'),
+            userLibrary: true,
             hasUser: true,
             platformAvailable: true,
         })).toBe('authenticated');
@@ -50,9 +53,29 @@ describe('online provider account home view', () => {
     it('settles a provider without accounts instead of waiting on an account forever', () => {
         expect(resolveOnlineProviderAccountView({
             provider: accountlessProvider(),
+            userLibrary: false,
             hasUser: false,
             platformAvailable: true,
         })).toBe('accountless');
+    });
+
+    it('treats a provider with userLibrary but no auth flow as authenticated when it has a sentinel user', () => {
+        // Tongrenlu shape: requiresAccount is false (omni derives it from auth, which is false)
+        // and userLibrary is true. With a sentinel user registered, the home grid should go to
+        // the authenticated branch and render its tabs, not the "no library" panel.
+        const tongrenluLike: ProviderAccountSummary = {
+            ...provider('unknown'),
+            providerId: 'tongrenlu',
+            requiresAccount: false,
+            hydration: 'ready',
+            user: { id: '', nickname: '同人录' },
+        };
+        expect(resolveOnlineProviderAccountView({
+            provider: tongrenluLike,
+            userLibrary: true,
+            hasUser: true,
+            platformAvailable: true,
+        })).toBe('authenticated');
     });
 });
 

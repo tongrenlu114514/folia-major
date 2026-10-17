@@ -131,6 +131,148 @@ function devLyricProxyPlugin() {
   };
 }
 
+// Dev-only proxy that forwards `/api/tongrenlu/<op>` to the configured upstream
+// (`VITE_TONGRENLU_API_BASE`) and adds CORS headers. The browser hits the proxy at
+// the same origin so cross-origin restrictions do not block it.
+function devTongrenluProxyPlugin() {
+  let cachedTongrenluBase = '';
+  return {
+    name: 'folia-dev-tongrenlu-proxy',
+    apply: 'serve' as const,
+    configResolved(config: { env?: Record<string, string | undefined> }) {
+      cachedTongrenluBase = String(config.env?.VITE_TONGRENLU_API_BASE ?? process.env.VITE_TONGRENLU_API_BASE ?? '').trim().replace(/\/$/, '');
+    },
+    configureServer(server: ViteDevServer) {
+      server.middlewares.use(async (req, res, next) => {
+        const requestUrl = new URL(req.url ?? '/', 'http://localhost');
+        if (requestUrl.pathname !== '/api/tongrenlu' && !requestUrl.pathname.startsWith('/api/tongrenlu/')) {
+          next();
+          return;
+        }
+        const segments = requestUrl.pathname.replace(/^\/api\/tongrenlu\/?/, '').split('/').filter(Boolean);
+        const operation = segments[0] ?? requestUrl.searchParams.get('op') ?? '';
+        if (!operation) {
+          res.statusCode = 400;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ error: 'Missing operation' }));
+          return;
+        }
+
+        if (req.method === 'OPTIONS') {
+          res.setHeader('Access-Control-Allow-Origin', '*');
+          res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+          res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+          res.statusCode = 204;
+          res.end();
+          return;
+        }
+
+        if (!cachedTongrenluBase) {
+          res.statusCode = 503;
+          res.setHeader('Access-Control-Allow-Origin', '*');
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ error: 'VITE_TONGRENLU_API_BASE is not configured' }));
+          return;
+        }
+
+        const upstream = new URL(`${cachedTongrenluBase}/api/music/${operation}`);
+        requestUrl.searchParams.forEach((value, key) => {
+          if (key === 'op') return;
+          upstream.searchParams.set(key, value);
+        });
+
+        // The `audio` operation streams audio with CORS headers. Accepts either a full URL as
+        // `id` (direct CDN URL from `resolveAudioUrl`) or a track/album id (search fallback).
+        if (operation === 'audio') {
+          const mediaId = requestUrl.searchParams.get('id') ?? '';
+
+          const streamAudio = async (url: string) => {
+            try {
+              const audioResponse = await fetch(url, { method: 'GET' });
+              res.writeHead(audioResponse.status, {
+                'Access-Control-Allow-Origin': '*',
+                'Content-Type': audioResponse.headers.get('content-type') ?? 'audio/mpeg',
+              });
+              if (audioResponse.body) {
+                for await (const chunk of audioResponse.body as AsyncIterable<Uint8Array>) {
+                  res.write(chunk);
+                }
+              }
+              res.end();
+            } catch {
+              res.writeHead(502, { 'Access-Control-Allow-Origin': '*' });
+              res.end();
+            }
+          };
+
+          if (/^https?:\/\//i.test(mediaId)) {
+            await streamAudio(mediaId);
+            return;
+          }
+
+          const trackUpstream = new URL(`${cachedTongrenluBase}/api/music/track`);
+          trackUpstream.searchParams.set('id', mediaId);
+          try {
+            const trackResponse = await fetch(trackUpstream.toString(), { method: 'GET' });
+            if (trackResponse.ok) {
+              const trackData = await trackResponse.json() as { url?: string };
+              if (trackData?.url) {
+                await streamAudio(trackData.url);
+                return;
+              }
+            }
+          } catch {
+            // fall through
+          }
+
+          const detailUpstream = new URL(`${cachedTongrenluBase}/api/music/detail`);
+          detailUpstream.searchParams.set('albumId', mediaId);
+          try {
+            const detailResponse = await fetch(detailUpstream.toString(), { method: 'GET' });
+            if (detailResponse.ok) {
+              const detailData = await detailResponse.json() as { tracks?: Array<{ id: number | string }> };
+              const firstTrack = detailData?.tracks?.[0];
+              if (firstTrack) {
+                const trackUpstream2 = new URL(`${cachedTongrenluBase}/api/music/track`);
+                trackUpstream2.searchParams.set('id', String(firstTrack.id));
+                const trackResponse2 = await fetch(trackUpstream2.toString(), { method: 'GET' });
+                if (trackResponse2.ok) {
+                  const trackData2 = await trackResponse2.json() as { url?: string };
+                  if (trackData2?.url) {
+                    await streamAudio(trackData2.url);
+                    return;
+                  }
+                }
+              }
+            }
+          } catch {
+            // fall through
+          }
+
+          res.writeHead(404, { 'Access-Control-Allow-Origin': '*' });
+          res.end();
+          return;
+        }
+
+        try {
+          const response = await fetch(upstream.toString(), { method: 'GET' });
+          res.setHeader('Access-Control-Allow-Origin', '*');
+          res.statusCode = response.status;
+          const contentType = response.headers.get('content-type');
+          if (contentType) res.setHeader('Content-Type', contentType);
+          const buffer = Buffer.from(await response.arrayBuffer());
+          res.end(buffer);
+        } catch (error) {
+          res.statusCode = 502;
+          res.setHeader('Access-Control-Allow-Origin', '*');
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ error: 'Tongrenlu proxy request failed', details: String(error) }));
+        }
+      });
+    },
+  };
+}
+
 export default async function viteConfig(_config: ConfigEnv): Promise<UserConfig> {
   let commitHash = '';
   if (process.env.VERCEL_GIT_COMMIT_SHA) {
@@ -266,6 +408,7 @@ export default async function viteConfig(_config: ConfigEnv): Promise<UserConfig
     },
     plugins: [
       devLyricProxyPlugin(),
+      devTongrenluProxyPlugin(),
       commandPinyinPlugin(),
       traditionalLocalePlugin(),
       icuFoliaDataPlugin(),

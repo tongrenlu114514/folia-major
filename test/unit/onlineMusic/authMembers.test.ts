@@ -39,7 +39,11 @@ describe('the sign-in members of each built-in platform', () => {
         expect(Object.keys(getOnlineMusicProvider(providerId)!.auth!).sort()).toEqual(members);
     });
 
-    it('has a row for every built-in platform', () => {
-        expect(listOnlineMusicProviders().map(provider => provider.id).sort()).toEqual(Object.keys(AUTH_MEMBERS).sort());
+    it('has a row for every built-in platform that requires sign-in', () => {
+        const providersThatSignIn = listOnlineMusicProviders()
+            .filter(provider => provider.capabilities.auth !== false)
+            .map(provider => provider.id)
+            .sort();
+        expect(providersThatSignIn).toEqual(Object.keys(AUTH_MEMBERS).sort());
     });
 });

@@ -51,6 +51,7 @@ const { createYtmSandbox } = require('./ytm/sandbox.cjs');
 const { YTM_AUDIO_PRIVILEGED_SCHEME, YTM_AUDIO_SCHEME } = require('./ytm/audio.cjs');
 const { createSpotifyApiBridge } = require('./spotify/spotifyApiBridge.cjs');
 const { SPOTIFY_AUDIO_PRIVILEGED_SCHEME, SPOTIFY_AUDIO_SCHEME } = require('./spotify/audio.cjs');
+const { createTongrenluApiBridge } = require('./tongrenlu/tongrenluApiBridge.cjs');
 const { createQqAuthSessionRepository } = require('./qq/qqAuthSessionRepository.cjs');
 const { DEFAULT_DISCORD_APPLICATION_ID, createDiscordPresenceController } = require('./discordPresence.cjs');
 const { createVoiceInputPauseMonitor } = require('./voiceInputPause.cjs');
@@ -273,6 +274,14 @@ const spotifyApiBridge = createSpotifyApiBridge({ store, safeStorage,
   audioDirectory: () => path.join(getConfiguredCacheDirectory(), 'spotify'),
   onAudioKept: limitBytes => pruneMediaCache(limitBytes),
 });
+// Tongrenlu is a public archive with no auth. The base URL is read from the same VITE-style
+// variable the renderer would use, so desktop and web builds share one configuration source.
+const tongrenluApiBase = String(process.env.VITE_TONGRENLU_API_BASE
+  || (typeof process !== 'undefined' && process.env && process.env.TONGRENLU_API_BASE)
+  || '').trim();
+const tongrenluApiBridge = tongrenluApiBase
+  ? createTongrenluApiBridge({ baseUrl: tongrenluApiBase })
+  : createTongrenluApiBridge({});
 const qqAuthSessionRepository = createQqAuthSessionRepository({ store, safeStorage });
 // AI API keys are sealed with safeStorage instead of sitting in config.json as plaintext, and never
 // leave the main process: the renderer only sees AI_API_KEYS_CONFIGURED (#586).
@@ -6477,6 +6486,11 @@ ipcMain.handle('spotify-api-request', (event, operation, params) => {
   }
   return spotifyApiBridge.request(operation, params);
 });
+ipcMain.handle('tongrenlu-api-request', createSenderGuardedHandler({
+  channel: 'tongrenlu-api-request',
+  isTrusted: isFirstPartyWindowContents,
+  handler: (_event, operation, params) => tongrenluApiBridge.request(operation, params),
+}));
 
 ipcMain.handle('window-minimize', () => {
   if (!mainWindow || mainWindow.isDestroyed()) {

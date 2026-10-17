@@ -58,12 +58,13 @@ export const resolveHomeOnlineSource = ({
 }): LibraryHomeOnlineSource => {
     const isNetease = providerId === 'netease';
     const user = provider?.user || (isNetease ? fallbackUser : null);
+    const userLibrary = capabilities.userLibrary;
     return {
         providerId,
         providerLabel: provider?.shortName || provider?.displayName || fallbackLabel,
         provider,
         user,
-        accountView: resolveOnlineProviderAccountView({ provider, hasUser: Boolean(user), platformAvailable }),
+        accountView: resolveOnlineProviderAccountView({ provider, userLibrary, hasUser: Boolean(user), platformAvailable }),
         needsRelogin: provider?.error === 'auth-required',
         collections: provider?.collections || (isNetease
             ? [...fallbackPlaylists, ...(fallbackCloud ? [fallbackCloud] : [])]

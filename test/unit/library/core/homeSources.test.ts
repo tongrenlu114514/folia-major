@@ -91,7 +91,10 @@ describe('resolveHomeOnlineSource', () => {
     it('reads the account view and an expired login from the summary', () => {
         expect(source({ provider: summary({ status: 'unknown', hydration: 'loading' } as Partial<ProviderAccountSummary>) }).accountView).toBe('resolving');
         expect(source({ provider: summary({ status: 'anonymous' }), platformAvailable: true }).accountView).toBe('guest');
-        expect(source({ provider: summary({ requiresAccount: false } as Partial<ProviderAccountSummary>) }).accountView).toBe('accountless');
+        expect(source({ provider: summary({ requiresAccount: false } as Partial<ProviderAccountSummary>), capabilities: NONE }).accountView).toBe('accountless');
+        // A provider without auth but with a library capability still surfaces the authenticated
+        // branch once it has a sentinel user — see resolveOnlineProviderAccountView for the rule.
+        expect(source({ provider: summary({ requiresAccount: false, hydration: 'ready', user: { id: '', nickname: 'X' } } as Partial<ProviderAccountSummary>) }).accountView).toBe('authenticated');
         expect(source({ provider: summary({ error: 'auth-required' } as Partial<ProviderAccountSummary>) }).needsRelogin).toBe(true);
     });
 });
