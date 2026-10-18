@@ -42,6 +42,7 @@
 | 64+ | `src/library/core/suite/suite.contract.ts` |
 | 64+ | `src/mods/folium/contract.ts` |
 | 64+ | `src/services/onlineMusic/omni.ts` |
+| 64+ | `src/stores/useAppViewStore.ts` |
 | 64+ | `src/stores/usePlaybackStore.ts` |
 | 64+ | `src/stores/useStatusMessageStore.ts` |
 | 32+ | `dev/probes/definition.ts` |
@@ -60,7 +61,6 @@
 | 32+ | `src/services/onlineMusic/providerRegistry.ts` |
 | 32+ | `src/services/onlineMusic/songMetadata.ts` |
 | 32+ | `src/stores/motionSignals.ts` |
-| 32+ | `src/stores/useAppViewStore.ts` |
 | 32+ | `src/stores/useAudioSettingsStore.ts` |
 | 32+ | `src/stores/useOnlineProviderAccountStore.ts` |
 | 32+ | `src/stores/useThemeSettingsStore.ts` |
