@@ -34,7 +34,7 @@
 | 被依赖量级 | 模块 |
 | --- | --- |
 | 512+ | `src/types.ts` |
-| 128+ | `src/types/onlineMusic.ts` |
+| 256+ | `src/types/onlineMusic.ts` |
 | 128+ | `src/types/ponder.ts` |
 | 128+ | `src/utils/appPlaybackGuards.ts` |
 | 64+ | `src/components/command-palette/types.ts` |
@@ -133,6 +133,7 @@
 - `dev/probes/settingsNavigation.probe.tsx`
 - `dev/probes/subtitleDualRow.probe.tsx`
 - `dev/probes/themePark.probe.tsx`
+- `dev/probes/tongrenlu.probe.tsx`
 - `dev/probes/trackTitleNavigator.probe.tsx`
 - `dev/probes/visualizerMemory.probe.tsx`
 - `dev/probes/wallToolsIsland.probe.tsx`
