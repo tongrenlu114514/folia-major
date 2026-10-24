@@ -1,7 +1,7 @@
 // src/hooks/useDeepLinkHandler.ts
 // 处理来自外部链接的 deep link，例如 ?album=13002
 // 支持：
-//   ?album=<id>                 自动打开 tongrenlu 专辑
+//   ?album=<id>                 自动打开默认 provider 的专辑
 //   ?provider=<id>&album=<id>   指定 provider 打开专辑
 
 import { useEffect, useRef } from 'react';
@@ -12,21 +12,13 @@ import { setStatusMessage } from '../stores/useStatusMessageStore';
 import { useCollectionNavigationStore } from '../stores/useCollectionNavigationStore';
 import { useAppViewStore } from '../stores/useAppViewStore';
 import { useOnlineProviderAccountStore } from '../stores/useOnlineProviderAccountStore';
-import { requireOnlineMusicProvider } from '../services/onlineMusic/providerRegistry';
 
 interface DeepLinkHandlerOptions {
     navigateToCollection: (collection: GridViewCollectionDescriptor, origin: 'home' | 'search' | 'player') => void;
 }
 
-const PROVIDER_IDS: ReadonlySet<OnlineProviderId> = new Set([
-    'netease',
-    'kugou',
-    'qq',
-    'tongrenlu',
-] as const);
-
-const isProviderId = (value: string): value is OnlineProviderId =>
-    PROVIDER_IDS.has(value as OnlineProviderId);
+// 链接不带 ?provider= 时打开的 provider。
+const DEFAULT_DEEP_LINK_PROVIDER_ID: OnlineProviderId = 'tongrenlu';
 
 const stripDeepLinkFromUrl = () => {
     if (!window.location.search) return;
@@ -72,14 +64,14 @@ export function useDeepLinkHandler({ navigateToCollection }: DeepLinkHandlerOpti
         if (!albumId) return;
 
         handledRef.current = true;
-        const providerId: OnlineProviderId = providerParam && isProviderId(providerParam)
-            ? providerParam
-            : 'tongrenlu';
+        // 链接里的 provider id 交给 Omni 校验：没登记的 id 会被 Omni 拒绝，
+        // 而不是悄悄打开另一个 provider 的同名专辑。
+        const providerId: OnlineProviderId = providerParam?.trim() || DEFAULT_DEEP_LINK_PROVIDER_ID;
 
         const openAlbum = async () => {
             try {
                 // Verify provider is registered before fetching.
-                requireOnlineMusicProvider(providerId);
+                omni.getProviderCapabilities(providerId);
 
                 // Switch the active provider if necessary, so the home view shows the
                 // right catalogue. The user is starting from a deep link, so it is OK
