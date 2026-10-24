@@ -8,6 +8,7 @@ import {
     type ProviderArtistSummary,
     type ProviderAudioSource,
     type ProviderCollection,
+    type ProviderLyricsResult,
     type ProviderPage,
     type ProviderSongMetadata,
 } from '../../../types/onlineMusic';
@@ -26,6 +27,7 @@ import {
     getTongrenluTransportAvailability,
     requestTongrenlu,
 } from './tongrenluTransport';
+import { fetchPublicNeteaseLyrics } from '../netease/publicLyricApi';
 
 // src/services/onlineMusic/tongrenluProvider.ts
 
@@ -212,6 +214,50 @@ const fetchArtistAlbums = async (
 
 // ----- song metadata -----
 
+/**
+ * The Cloud Music song id of a Tongrenlu track.
+ *
+ * A Tongrenlu row points at the Cloud Music song it was imported from (`m_track.cloud_music_id`).
+ * That id is what the lyric endpoints ask for, so it is the one thing a lyric lookup needs.
+ * The id rides along on `providerData` because the row is normalized once, when it is read.
+ */
+const getCloudMusicSongId = (song: SongResult): string | null => {
+    const sourceRef = getPlaybackSourceRef(song);
+    if (sourceRef.kind !== 'online') return null;
+    const providerData = sourceRef.providerData as { cloudMusicId?: unknown } | undefined;
+    const raw = providerData?.cloudMusicId;
+    if (raw === undefined || raw === null || raw === '') return null;
+    const id = String(raw).trim();
+    // A row without an imported song has no id; the placeholder ids of the import are not songs.
+    return id && id !== '0' ? id : null;
+};
+
+/**
+ * The lyric of a Tongrenlu track.
+ *
+ * The catalog stores no lyric of its own; it stores the Cloud Music song the track was imported
+ * from, and the lyric is read from that song's public lyric endpoint. A track without an
+ * imported song, or a song without a lyric, answers "no lyric" instead of failing.
+ */
+const getLyrics = async (song: SongResult): Promise<ProviderLyricsResult> => {
+    const empty: ProviderLyricsResult = {
+        lyrics: null,
+        mainText: null,
+        wordByWordText: null,
+        translationText: null,
+        romanizationText: null,
+        isPureMusic: false,
+    };
+
+    const songId = getCloudMusicSongId(song);
+    if (!songId) return empty;
+
+    const result = await fetchPublicNeteaseLyrics(songId);
+    if (!result) return empty;
+
+    return result;
+};
+
 const fetchSongMetadata = (song: SongResult): ProviderSongMetadata => {
     const sourceRef = getPlaybackSourceRef(song);
     const providerData = sourceRef.kind === 'online' ? (sourceRef.providerData ?? {}) : {};
@@ -255,7 +301,8 @@ export const tongrenluProvider: OnlineMusicProvider = {
         search: true, // `/search?keyword=...` returns album rows; we map them to UnifiedSong
                        // so the search surface can display album cards and open album detail.
         playback: true,
-        lyrics: false,
+        lyrics: true, // The lyric is read from the Cloud Music song the track was imported from;
+                      // the catalog itself stores no lyric.
         auth: false,
         userLibrary: true, // The home grid "Albums" tab reads through `library.getUserAlbums`,
                             // which the provider implements as a circle browser. Marking the
@@ -267,11 +314,12 @@ export const tongrenluProvider: OnlineMusicProvider = {
         userAlbums: true,
         recommendations: false,
         mutations: false,
-        wordByWordLyrics: false,
+        wordByWordLyrics: true, // The Cloud Music lyric payload may carry the word-by-word `yrc`.
     },
     normalizeSong: normalizeTongrenluSong,
     normalizeCollection: normalizeTongrenluCollection,
     songMetadata: { getSongMetadata: fetchSongMetadata },
+    lyrics: { getLyrics },
     getSongPageUrl: (song) => {
         const sourceRef = getPlaybackSourceRef(song);
         if (sourceRef.kind !== 'online' || sourceRef.providerId !== PROVIDER_ID) return null;

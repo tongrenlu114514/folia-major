@@ -105,6 +105,7 @@ export const PLATFORM_NAME_PLACES: Record<string, PlatformNamePlace> = {
     'src/services/onlineMusic/qq/qqTransport.ts': { n: { netease: 1 }, kind: 'doc' },
     'src/services/onlineMusic/resourceCache.ts': { n: { netease: 2 }, kind: 'doc' },
     'src/services/onlineMusic/resourceKeys.ts': { n: { netease: 1, kugou: 1 }, kind: 'stored', why: 'cache keys: one platform\'s covers under a second key version, another\'s songs under keys from before the keys carried a platform' },
+    'src/services/onlineMusic/tongrenlu/tongrenluProvider.ts': { n: { netease: 2 }, kind: 'lyric', why: 'the catalog stores no lyric of its own: a track points at the Cloud Music song it was imported from, and that song\'s public lyric endpoint is where the lyric is read' },
     'src/services/sync/syncFingerprint.ts': { n: { netease: 5 }, kind: 'stored', why: 'a synced fingerprint' },
     'src/services/sync/syncRepository.ts': { n: { netease: 6 }, kind: 'stored', why: 'records of before the fingerprint carried a platform' },
     'src/services/sync/themeSyncRegistry.ts': { n: { netease: 6 }, kind: 'stored', why: 'a synced fingerprint and the theme cache key made from it' },

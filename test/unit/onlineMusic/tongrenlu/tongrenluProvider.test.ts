@@ -4,8 +4,17 @@ import { OnlineProviderError } from '@/types/onlineMusic';
 import { listOnlineMusicProviders, getOnlineMusicProvider } from '@/services/onlineMusic/providerRegistry';
 import { tongrenluProvider } from '@/services/onlineMusic/tongrenlu/tongrenluProvider';
 import { getTongrenluAvailability } from '@/services/onlineMusic/tongrenlu/tongrenluAvailability';
+import { parseLyricsAsync } from '@/utils/lyrics/workerClient';
 
 // test/unit/onlineMusic/tongrenluProvider.test.ts
+
+// The lyric parser runs in a Web Worker, which the node test environment does not have. The
+// parsing itself is covered by the lyric unit tests; here the parser is stubbed so that this
+// file tests the provider's own behavior: which song it asks for and what it does with the
+// answer.
+vi.mock('@/utils/lyrics/workerClient', () => ({
+    parseLyricsAsync: vi.fn(),
+}));
 
 afterEach(() => {
     vi.unstubAllGlobals();
@@ -27,7 +36,7 @@ describe('Tongrenlu provider - registration', () => {
         expect(tongrenluProvider.capabilities).toMatchObject({
             search: true,
             playback: true,
-            lyrics: false,
+            lyrics: true,
             auth: false,
             userLibrary: true,
             playlists: false,
@@ -36,7 +45,7 @@ describe('Tongrenlu provider - registration', () => {
             userAlbums: true,
             recommendations: false,
             mutations: false,
-            wordByWordLyrics: false,
+            wordByWordLyrics: true,
         });
     });
 
@@ -114,6 +123,138 @@ describe('Tongrenlu provider - playback', () => {
             },
         });
         await expect(tongrenluProvider.playback!.getSongDetail(223443)).rejects.toMatchObject({ code: 'unavailable' });
+    });
+});
+
+describe('Tongrenlu provider - lyrics', () => {
+    const parseLyricsAsyncMock = vi.mocked(parseLyricsAsync);
+
+    beforeEach(() => {
+        parseLyricsAsyncMock.mockReset();
+        parseLyricsAsyncMock.mockResolvedValue({
+            lines: [
+                { fullText: 'First line', startTime: 12.34, endTime: 18.9, words: [] },
+                { fullText: 'Second line', startTime: 18.9, endTime: 25, words: [] },
+            ],
+            isWordByWord: false,
+        } as never);
+    });
+
+    const lyricSong = (cloudMusicId: unknown) => ({
+        id: 223443,
+        name: 'Looks',
+        artists: [{ id: 'a', name: 'Reset All Controllers' }],
+        album: { id: '8444', name: 'An Album' },
+        durationMs: 0,
+        sourceRef: {
+            kind: 'online' as const,
+            providerId: 'tongrenlu' as const,
+            mediaId: '223443',
+            providerData: { albumId: '8444', cloudMusicId },
+        },
+    });
+
+    const stubFetch = (payloads: Record<string, unknown>) => {
+        const fetchMock = vi.fn(async (url: string) => {
+            const path = String(url).includes('/lyric/new') ? '/lyric/new' : '/lyric';
+            const payload = payloads[path];
+            if (payload === undefined) {
+                return { ok: false, status: 404, json: async () => ({}) } as unknown as Response;
+            }
+            return { ok: true, status: 200, json: async () => payload } as unknown as Response;
+        });
+        vi.stubGlobal('fetch', fetchMock);
+        return fetchMock;
+    };
+
+    afterEach(() => {
+        vi.unstubAllGlobals();
+    });
+
+    it('reads the lyric of the NetEase song the track was imported from', async () => {
+        const fetchMock = stubFetch({
+            '/lyric/new': {
+                lrc: { version: 1, lyric: '[00:12.34]First line\n[00:18.90]Second line' },
+                tlyric: { version: 0, lyric: '' },
+                romalrc: { version: 0, lyric: '' },
+                code: 200,
+            },
+        });
+
+        const result = await tongrenluProvider.lyrics!.getLyrics(lyricSong(1500182591) as never);
+
+        expect(result.mainText).toContain('First line');
+        expect(result.lyrics).not.toBeNull();
+        expect(result.lyrics!.lines.length).toBeGreaterThan(0);
+        // The request must carry the NetEase song id, not the Tongrenlu track id.
+        expect(String(fetchMock.mock.calls[0][0])).toContain('id=1500182591');
+    });
+
+    it('returns no lyric when the track has no imported NetEase song', async () => {
+        const fetchMock = stubFetch({});
+        const result = await tongrenluProvider.lyrics!.getLyrics(lyricSong(null) as never);
+
+        expect(result.lyrics).toBeNull();
+        expect(result.mainText).toBeNull();
+        expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('returns no lyric when the imported song id is the placeholder zero', async () => {
+        const fetchMock = stubFetch({});
+        const result = await tongrenluProvider.lyrics!.getLyrics(lyricSong(0) as never);
+
+        expect(result.lyrics).toBeNull();
+        expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('returns no lyric when the lyric endpoint answers with the empty placeholder', async () => {
+        stubFetch({
+            '/lyric/new': { uncollected: true, lrc: { version: 1, lyric: '[00:00.00]暂无歌词' }, code: 200 },
+            '/lyric': { uncollected: true, lrc: { version: 1, lyric: '[00:00.00]暂无歌词' }, code: 200 },
+        });
+
+        const result = await tongrenluProvider.lyrics!.getLyrics(lyricSong(1500182591) as never);
+        expect(result.lyrics).toBeNull();
+    });
+
+    it('falls back to the line-timed endpoint when the word-by-word one has nothing', async () => {
+        stubFetch({
+            '/lyric/new': { lrc: { version: 1, lyric: '' }, code: 200 },
+            '/lyric': { lrc: { version: 1, lyric: '[00:05.00]Fallback line' }, code: 200 },
+        });
+
+        const result = await tongrenluProvider.lyrics!.getLyrics(lyricSong(1500182591) as never);
+        expect(result.mainText).toContain('Fallback line');
+    });
+
+    it('does not throw when the lyric request fails', async () => {
+        vi.stubGlobal('fetch', vi.fn(async () => {
+            throw new Error('network down');
+        }));
+
+        const result = await tongrenluProvider.lyrics!.getLyrics(lyricSong(1500182591) as never);
+        expect(result.lyrics).toBeNull();
+        expect(result.isPureMusic).toBe(false);
+    });
+
+    it('reads the word-by-word lyric when the payload carries one', async () => {
+        parseLyricsAsyncMock.mockResolvedValue({
+            lines: [{ fullText: 'First line', startTime: 12.34, endTime: 13.04, words: [] }],
+            isWordByWord: true,
+        } as never);
+        stubFetch({
+            '/lyric/new': {
+                lrc: { version: 1, lyric: '[00:12.34]First line' },
+                yrc: { version: 1, lyric: '[12,340,1200](0,0,0)First(12,340,700,0) line(13,040,600,0)' },
+                tlyric: { version: 0, lyric: '' },
+                romalrc: { version: 0, lyric: '' },
+                code: 200,
+            },
+        });
+
+        const result = await tongrenluProvider.lyrics!.getLyrics(lyricSong(1500182591) as never);
+        expect(result.wordByWordText).toContain('First');
+        expect(result.lyrics!.isWordByWord).toBe(true);
     });
 });
 
